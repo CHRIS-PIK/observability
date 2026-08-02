@@ -4,10 +4,10 @@ services:
     container_name: olympus-loki
     command: ["-config.file=/etc/loki/loki-config.yml"]
     ports:
-      - "3100:3100"
+      - "${LOKI_PORT:-3100}:3100"
     volumes:
-      - /opt/docker/stacks/observability/config/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
-      - /opt/docker/volumes/observability/loki:/loki
+      - ./config/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - ${DATA_ROOT:-./data}/loki:/loki
     networks:
       - monitoring
     restart: unless-stopped
@@ -21,12 +21,12 @@ services:
       - --server.http.listen-addr=0.0.0.0:12345
       - --stability.level=public-preview
     ports:
-      - "12345:12345"
-      - "4317:4317"
-      - "4318:4318"
-      - "4041:4041"
+      - "${ALLOY_UI_PORT:-12345}:12345"
+      - "${OTLP_GRPC_PORT:-4317}:4317"
+      - "${OTLP_HTTP_PORT:-4318}:4318"
+      - "${ALLOY_PROFILE_PORT:-4041}:4041"
     volumes:
-      - /opt/docker/stacks/observability/config/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ./config/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -43,14 +43,15 @@ services:
     image: grafana/grafana:12.3.1
     container_name: olympus-grafana
     ports:
-      - "3000:3000"
+      - "${GRAFANA_PORT:-3000}:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_USERS_ALLOW_SIGN_UP=false
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
-      - /opt/docker/volumes/observability/grafana:/var/lib/grafana
-      - /opt/docker/stacks/observability/config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ${DATA_ROOT:-./data}/grafana:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
       - frontend
       - monitoring
@@ -66,10 +67,10 @@ services:
     container_name: olympus-mimir
     command: ["-config.file=/etc/mimir/mimir-config.yml"]
     ports:
-      - "9009:9009"
+      - "${MIMIR_PORT:-9009}:9009"
     volumes:
-      - /opt/docker/stacks/observability/config/mimir/mimir-config.yml:/etc/mimir/mimir-config.yml:ro
-      - /opt/docker/volumes/observability/mimir:/mimir
+      - ./config/mimir/mimir-config.yml:/etc/mimir/mimir-config.yml:ro
+      - ${DATA_ROOT:-./data}/mimir:/mimir
     networks:
       - monitoring
     restart: unless-stopped
@@ -79,12 +80,10 @@ services:
     container_name: olympus-tempo
     command: ["-config.file=/etc/tempo/tempo-config.yml"]
     ports:
-      - "3200:3200"
-     # - "4317:4317"
-     # - "4318:4318"
+      - "${TEMPO_PORT:-3200}:3200"
     volumes:
-      - /opt/docker/stacks/observability/config/tempo/tempo-config.yml:/etc/tempo/tempo-config.yml:ro
-      - /opt/docker/volumes/observability/tempo:/var/tempo
+      - ./config/tempo/tempo-config.yml:/etc/tempo/tempo-config.yml:ro
+      - ${DATA_ROOT:-./data}/tempo:/var/tempo
     networks:
       - monitoring
     restart: unless-stopped
@@ -95,10 +94,10 @@ services:
     command:
       - "-config.file=/etc/pyroscope/config.yaml"
     ports:
-      - "4040:4040"
+      - "${PYROSCOPE_PORT:-4040}:4040"
     volumes:
-      - /opt/docker/stacks/observability/config/pyroscope/config.yaml:/etc/pyroscope/config.yaml:ro
-      - /opt/docker/volumes/observability/pyroscope:/var/lib/pyroscope
+      - ./config/pyroscope/config.yaml:/etc/pyroscope/config.yaml:ro
+      - ${DATA_ROOT:-./data}/pyroscope:/var/lib/pyroscope
     networks:
       - monitoring
     restart: unless-stopped
@@ -106,5 +105,7 @@ services:
 networks:
   frontend:
     external: true
+    name: ${FRONTEND_NETWORK:-frontend}
   monitoring:
     external: true
+    name: ${MONITORING_NETWORK:-monitoring}
