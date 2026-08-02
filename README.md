@@ -1,135 +1,126 @@
 # Observability Lab
 
-Stack de observabilidade executada com Docker Compose, baseada no ecossistema Grafana, para coleta e visualização de **métricas, logs, traces e profiles**.
-
-O projeto mantém o comportamento atual do laboratório:
-
-- coleta métricas do host Docker;
-- coleta logs dos containers pelo Docker socket;
-- recebe telemetria OTLP por gRPC e HTTP;
-- recebe profiles pelo Grafana Alloy;
-- coleta métricas do `datalake-producer` em `host.docker.internal:9101`;
-- coleta métricas do `datalake-worker` em `host.docker.internal:9102`;
-- envia métricas para o Mimir, logs para o Loki, traces para o Tempo e profiles para o Pyroscope;
-- disponibiliza os dados no Grafana com datasources provisionados automaticamente.
+Stack de observabilidade single-node executada com Docker Compose e baseada no ecossistema Grafana. O projeto coleta e centraliza **métricas, logs, traces e profiles** sem alterar os alvos originais do laboratório.
 
 ## Arquitetura
 
-```text
-Docker containers ── logs ───────────────┐
-Linux host ──────── metrics ─────────────┤
-Producer :9101 ──── metrics ─────────────┤
-Worker :9102 ────── metrics ─────────────┤
-Applications ────── OTLP 4317/4318 ──────┤
-Applications ────── profiles 4041 ───────┤
-                                         ▼
-                                    Grafana Alloy
-                      ┌──────────────────┼──────────────────┐
-                      ▼                  ▼                  ▼
-                 Mimir             Loki / Tempo        Pyroscope
-                 metrics          logs / traces         profiles
-                      └──────────────────┼──────────────────┘
-                                         ▼
-                                      Grafana
+```mermaid
+flowchart TD
+    D[Containers Docker] -->|logs| A[Grafana Alloy]
+    H[Host Linux] -->|métricas| A
+    P[Producer :9101] -->|métricas| A
+    W[Worker :9102] -->|métricas| A
+    O[Aplicações OTLP :4317/:4318] --> A
+    R[Aplicações com profiling :4041] --> A
+
+    A --> M[Mimir]
+    A --> L[Loki]
+    A --> T[Tempo]
+    A --> Y[Pyroscope]
+
+    M --> G[Grafana]
+    L --> G
+    T --> G
+    Y --> G
 ```
 
 ## Componentes
 
-| Componente | Imagem | Função | Porta no host |
+| Componente | Imagem | Função | Porta padrão |
 |---|---|---|---:|
-| Grafana | `grafana/grafana:12.3.1` | Visualização e exploração | `3000` |
-| Grafana Alloy | `grafana/alloy:v1.8.1` | Coleta e roteamento de telemetria | `12345`, `4317`, `4318`, `4041` |
-| Loki | `grafana/loki:3.5.5` | Armazenamento de logs | `3100` |
-| Mimir | `grafana/mimir:3.1.2` | Armazenamento de métricas | `9009` |
-| Tempo | `grafana/tempo:2.9.0` | Armazenamento de traces | `3200` |
-| Pyroscope | `grafana/pyroscope:1.14.1` | Armazenamento de profiles | `4040` |
+| Grafana | `grafana/grafana:12.3.1` | Visualização | `3000` |
+| Alloy | `grafana/alloy:v1.8.1` | Coleta e roteamento | `12345`, `4317`, `4318`, `4041` |
+| Loki | `grafana/loki:3.5.5` | Logs | `3100` |
+| Mimir | `grafana/mimir:3.1.2` | Métricas | `9009` |
+| Tempo | `grafana/tempo:2.9.0` | Traces | `3200` |
+| Pyroscope | `grafana/pyroscope:1.14.1` | Profiles | `4040` |
 
-## O que é necessário para subir
+## Alvos mantidos
 
-### Requisitos
+A portabilidade foi adicionada sem remover ou trocar o que já era observado:
 
-- Linux com arquitetura suportada pelas imagens utilizadas;
+- métricas do host Linux pelo exporter Unix do Alloy;
+- logs dos containers pelo Docker socket;
+- label de host `olympus`;
+- containers `aruba-producer`, `aruba-worker` e `aruba-mariadb` classificados como `application="argos"` e `environment="homelab"`;
+- producer em `host.docker.internal:9101`;
+- worker em `host.docker.internal:9102`;
+- recepção OTLP nas portas `4317` e `4318`;
+- recepção de profiles pelo Alloy na porta `4041`.
+
+A stack sobe mesmo quando producer ou worker não estiverem presentes, mas esses targets aparecerão como indisponíveis.
+
+## Pré-requisitos
+
+- servidor Linux;
 - Docker Engine;
 - Docker Compose v2 (`docker compose`);
 - Git;
-- portas livres: `3000`, `3100`, `3200`, `4040`, `4041`, `4317`, `4318`, `9009` e `12345`;
-- permissão para montar `/var/run/docker.sock` no container do Alloy;
-- acesso local às portas `9101` e `9102`, caso as coletas do producer e worker devam retornar dados.
+- `make`, opcional, mas recomendado;
+- acesso ao Docker socket `/var/run/docker.sock`;
+- portas configuradas no `.env` livres no host.
 
-> O Compose usa `host.docker.internal:host-gateway`, recurso suportado pelo Docker Engine moderno em Linux. Em versões antigas, atualize o Docker antes de executar a stack.
+## Instalação rápida
 
-### Dependências externas atuais
-
-O projeto espera que estas redes Docker já existam:
+O repositório pode ser clonado em qualquer diretório:
 
 ```bash
-docker network create frontend
-docker network create monitoring
+git clone https://github.com/CHRIS-PIK/observability.git
+cd observability
+cp .env.example .env
+make up
 ```
 
-Os comandos são idempotentes apenas quando tratados pelo shell. Para não receber erro caso as redes já existam, use:
+O comando `make up`:
+
+1. valida Docker e Docker Compose;
+2. cria o `.env` quando necessário;
+3. cria as redes Docker externas;
+4. cria os diretórios persistentes;
+5. valida o Compose;
+6. inicia toda a stack.
+
+Sem Make:
 
 ```bash
-docker network inspect frontend >/dev/null 2>&1 || docker network create frontend
-docker network inspect monitoring >/dev/null 2>&1 || docker network create monitoring
-```
-
-### Caminhos utilizados pelo Compose
-
-A configuração atual utiliza os seguintes caminhos absolutos:
-
-```text
-/opt/docker/stacks/observability
-/opt/docker/volumes/observability
-```
-
-Para executar exatamente como o projeto está configurado, clone o repositório no primeiro caminho:
-
-```bash
-sudo mkdir -p /opt/docker/stacks
-sudo git clone https://github.com/CHRIS-PIK/observability-lab.git \
-  /opt/docker/stacks/observability
-```
-
-Crie os diretórios persistentes:
-
-```bash
-sudo mkdir -p \
-  /opt/docker/volumes/observability/grafana \
-  /opt/docker/volumes/observability/loki \
-  /opt/docker/volumes/observability/mimir \
-  /opt/docker/volumes/observability/tempo \
-  /opt/docker/volumes/observability/pyroscope
-```
-
-Ajuste a propriedade dos diretórios caso algum container apresente erro de permissão. Evite aplicar `chmod 777`; verifique primeiro o UID usado pela imagem e conceda somente o acesso necessário.
-
-## Instalação
-
-```bash
-cd /opt/docker/stacks/observability
-
-docker network inspect frontend >/dev/null 2>&1 || docker network create frontend
-docker network inspect monitoring >/dev/null 2>&1 || docker network create monitoring
-
-docker compose config
+cp .env.example .env
+bash scripts/bootstrap.sh
 docker compose pull
 docker compose up -d
 ```
 
-Confira o estado dos serviços:
+## Configuração
 
-```bash
-docker compose ps
+Os defaults ficam em `.env.example`. Copie o arquivo para `.env` e ajuste quando necessário:
+
+```dotenv
+DATA_ROOT=./data
+FRONTEND_NETWORK=frontend
+MONITORING_NETWORK=monitoring
+GF_SECURITY_ADMIN_USER=admin
+GF_SECURITY_ADMIN_PASSWORD=admin
 ```
 
-Acompanhe a inicialização:
+Também é possível alterar todas as portas publicadas sem editar o Compose.
+
+> Troque a senha do Grafana antes de expor o ambiente externamente.
+
+## Comandos úteis
 
 ```bash
-docker compose logs -f --tail=100
+make bootstrap  # prepara redes, diretórios e .env
+make validate   # valida Compose e shell
+make pull       # atualiza imagens
+make up         # prepara e inicia a stack
+make down       # encerra a stack preservando dados
+make restart    # reinicia os serviços
+make ps         # exibe o estado dos containers
+make logs       # acompanha os logs
+make clean      # remove containers órfãos
+make reset      # remove a stack e todos os dados locais
 ```
 
-## Acessos
+## Acessos padrão
 
 | Serviço | Endereço |
 |---|---|
@@ -140,256 +131,111 @@ docker compose logs -f --tail=100
 | Tempo | `http://localhost:3200/ready` |
 | Pyroscope | `http://localhost:4040` |
 
-Credenciais iniciais do Grafana:
+Credenciais iniciais do Grafana: `admin / admin`, salvo alteração no `.env`.
 
-```text
-Usuário: admin
-Senha: admin
-```
+## Provisionamento do Grafana
 
-> Troque a senha imediatamente quando o ambiente não estiver isolado. As credenciais estão declaradas diretamente no `docker-compose.yml` e são adequadas apenas para laboratório.
+O Grafana inicia com os seguintes datasources:
 
-## Datasources provisionados
+- `Mimir-homelab`, datasource padrão;
+- `Loki-homelab`;
+- `Tempo-homelab`;
+- `Pyroscope-homelab`.
 
-O Grafana carrega automaticamente:
-
-| Nome | Tipo | Destino |
-|---|---|---|
-| `Mimir-homelab` | Prometheus | `http://mimir:9009/prometheus` |
-| `Loki-homelab` | Loki | `http://loki:3100` |
-| `Tempo-homelab` | Tempo | `http://tempo:3200` |
-
-O Mimir é configurado como datasource padrão.
-
-O Pyroscope está em execução e recebe profiles, mas ainda não existe datasource do Pyroscope no arquivo de provisioning atual. Ele pode ser acessado diretamente pela porta `4040` ou adicionado posteriormente ao Grafana.
-
-## Alvos observados atualmente
-
-### Host e containers Docker
-
-O Alloy:
-
-- coleta métricas do host por meio do exporter Unix integrado;
-- descobre containers pelo Docker socket;
-- envia os logs para o Loki;
-- adiciona labels de container, serviço e projeto Compose;
-- define o label estático de host como `olympus`.
-
-### Argos
-
-Containers com estes nomes recebem os labels `application="argos"` e `environment="homelab"`:
-
-```text
-aruba-producer
-aruba-worker
-aruba-mariadb
-```
-
-### Datalake
-
-O Alloy coleta:
-
-```text
-host.docker.internal:9101  job=datalake-producer
-host.docker.internal:9102  job=datalake-worker
-```
-
-Esses serviços precisam publicar suas métricas no host nessas portas. A stack de observabilidade sobe mesmo sem eles, mas esses dois scrapes permanecerão indisponíveis.
-
-### OTLP
-
-Aplicações podem enviar telemetria para:
-
-```text
-gRPC: http://<IP_DO_HOST>:4317
-HTTP: http://<IP_DO_HOST>:4318
-```
-
-O pipeline atual encaminha:
-
-- métricas para o Mimir;
-- logs para o Loki;
-- traces para o Tempo.
-
-### Profiles
-
-Aplicações instrumentadas podem enviar profiles ao Alloy na porta `4041`. O Alloy encaminha os dados para o Pyroscope em `http://pyroscope:4040`.
-
-## Estrutura do repositório
-
-```text
-.
-├── config
-│   ├── alloy
-│   │   └── config.alloy
-│   ├── grafana
-│   │   └── provisioning
-│   │       └── datasources
-│   │           └── datasources.yml
-│   ├── loki
-│   │   └── loki-config.yml
-│   ├── mimir
-│   │   └── mimir-config.yml
-│   ├── pyroscope
-│   │   └── config.yaml
-│   └── tempo
-│       └── tempo-config.yml
-├── docker-compose.yml
-└── README.md
-```
+O dashboard **Observability Lab Overview** também é provisionado automaticamente, mostrando estado dos targets e logs recentes dos containers.
 
 ## Validação pós-instalação
 
-### 1. Containers
+Confira os containers:
 
 ```bash
-docker compose ps
+make ps
 ```
 
-Todos devem aparecer como `Up`.
-
-### 2. Configuração efetiva do Compose
+Valide a configuração efetiva:
 
 ```bash
-docker compose config
+make validate
 ```
 
-Esse comando deve terminar sem erros antes do `up`.
-
-### 3. Logs do Alloy
-
-```bash
-docker compose logs alloy --tail=200
-```
-
-Verifique erros de configuração, acesso ao Docker socket e conexão com os backends.
-
-### 4. Métricas no Mimir
-
-No Grafana, abra **Explore**, selecione `Mimir-homelab` e execute:
+No Grafana, abra **Explore** e execute:
 
 ```promql
 up
 ```
 
-Para validar o host:
-
-```promql
-node_uname_info
-```
-
-Para conferir os alvos do datalake:
-
 ```promql
 up{job=~"datalake-producer|datalake-worker"}
 ```
 
-### 5. Logs no Loki
-
-No Explore, selecione `Loki-homelab` e execute:
+Para validar logs:
 
 ```logql
 {job="docker"}
 ```
 
-Para o Argos:
-
 ```logql
 {application="argos"}
 ```
 
-### 6. Traces no Tempo
+## Persistência
 
-Envie um trace OTLP para a porta `4317` ou `4318` e pesquise pelo serviço no datasource `Tempo-homelab`.
-
-### 7. Profiles no Pyroscope
-
-Envie um profile para `<IP_DO_HOST>:4041` e consulte a interface em `http://localhost:4040`.
-
-## Operação
-
-Subir ou atualizar:
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-Reiniciar um serviço:
-
-```bash
-docker compose restart alloy
-```
-
-Ver logs:
-
-```bash
-docker compose logs -f alloy
-```
-
-Parar sem apagar os dados:
-
-```bash
-docker compose down
-```
-
-Remover containers e redes internas do projeto, preservando os bind mounts:
-
-```bash
-docker compose down --remove-orphans
-```
-
-## Persistência e retenção
-
-Os dados são persistidos em bind mounts sob:
+Por padrão, os dados ficam em `./data`, dentro do diretório do repositório:
 
 ```text
-/opt/docker/volumes/observability
+data/
+├── grafana
+├── loki
+├── mimir
+├── tempo
+└── pyroscope
 ```
 
-Configurações relevantes:
+Para armazenar em outro local, altere `DATA_ROOT` no `.env`:
 
-- Tempo: retenção de blocos de traces de `24h`;
-- Loki: armazenamento local em filesystem, sem política explícita de retenção no arquivo atual;
-- Mimir: armazenamento local em filesystem, sem política explícita de retenção no arquivo atual;
-- Pyroscope: armazenamento local em filesystem;
-- Grafana: banco e estado persistidos em `/var/lib/grafana`.
+```dotenv
+DATA_ROOT=/opt/docker/volumes/observability
+```
 
-Monitore o uso de disco do host, principalmente nos diretórios do Loki, Mimir e Pyroscope.
+O `make reset` apaga o diretório configurado em `DATA_ROOT` e exige confirmação explícita.
 
-## Pontos de portabilidade identificados
+## Estrutura
 
-A stack é funcional, mas ainda não é totalmente plug-and-play em qualquer diretório. Para executá-la sem alterar o comportamento observado hoje, considere os seguintes pontos:
+```text
+.
+├── .github/workflows/validate.yml
+├── config
+│   ├── alloy/config.alloy
+│   ├── grafana
+│   │   ├── dashboards/observability-overview.json
+│   │   └── provisioning
+│   │       ├── dashboards/dashboards.yml
+│   │       └── datasources/datasources.yml
+│   ├── loki/loki-config.yml
+│   ├── mimir/mimir-config.yml
+│   ├── pyroscope/config.yaml
+│   └── tempo/tempo-config.yml
+├── scripts/bootstrap.sh
+├── .env.example
+├── docker-compose.yml
+├── Makefile
+├── LICENSE
+└── README.md
+```
 
-1. **Bind mounts absolutos:** o repositório precisa estar em `/opt/docker/stacks/observability`, ou o Compose precisa ser ajustado para caminhos relativos/variáveis.
-2. **Redes externas:** `frontend` e `monitoring` precisam existir antes do `docker compose up`.
-3. **Docker socket:** a coleta automática de logs depende de `/var/run/docker.sock`, portanto o projeto é orientado a Docker Engine em Linux.
-4. **Alvos do datalake:** producer e worker precisam estar acessíveis no host nas portas `9101` e `9102`.
-5. **Labels específicos:** os nomes `aruba-producer`, `aruba-worker` e `aruba-mariadb`, além dos labels `olympus`, `argos` e `homelab`, fazem parte da observação atual e foram mantidos.
-6. **Portas publicadas:** não pode haver conflito com serviços já existentes no host.
-7. **Permissões de armazenamento:** os containers precisam conseguir escrever nos diretórios persistentes.
-8. **Credenciais de laboratório:** Grafana inicia com `admin/admin`; isso não deve ser usado em produção.
-9. **Single-node:** Loki, Mimir, Tempo e Pyroscope estão configurados com armazenamento local e topologia de nó único; o projeto não oferece alta disponibilidade.
-10. **Arquitetura do host:** todas as imagens fixadas devem possuir build compatível com a CPU da máquina de destino.
+## CI
 
-## Melhorias futuras sem mudar os alvos observados
+O workflow do GitHub Actions valida automaticamente:
 
-Estas mudanças podem tornar a instalação portátil sem retirar ou substituir nenhuma coleta atual:
+- renderização do Docker Compose;
+- sintaxe do script de bootstrap;
+- JSON dos dashboards;
+- arquivos YAML da stack.
 
-- substituir caminhos absolutos de configuração por caminhos relativos ao repositório;
-- usar volumes nomeados ou uma variável `DATA_ROOT` para persistência;
-- fornecer um `.env.example` com portas, credenciais e diretório de dados;
-- incluir um script `bootstrap.sh` para criar redes e diretórios;
-- adicionar healthchecks aos serviços e dependências condicionadas à saúde;
-- provisionar o datasource do Pyroscope;
-- mover a senha do Grafana para `.env` ou Docker Secret;
-- adicionar políticas explícitas de retenção para Loki e Mimir;
-- adicionar validação automatizada do Compose em CI.
+## Limitações
 
-## Escopo
-
-Este repositório é um laboratório single-node. Ele não inclui TLS, autenticação entre os componentes, alta disponibilidade, object storage externo, backup automatizado ou hardening para exposição pública.
+Este é um laboratório single-node com armazenamento local. Ele não inclui alta disponibilidade, TLS entre componentes, autenticação interna, object storage externo, backup automatizado ou hardening para exposição pública.
 
 ## Licença
 
-Nenhuma licença foi definida até o momento.
+Distribuído sob a licença MIT. Consulte o arquivo `LICENSE`.
