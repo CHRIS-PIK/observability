@@ -2,6 +2,8 @@
 
 Stack de observabilidade single-node executada com Docker Compose e baseada no ecossistema Grafana. O projeto coleta e centraliza **métricas, logs, traces e profiles** sem alterar os alvos originais do laboratório.
 
+> **Flexível por padrão:** a stack pode ser executada completa, com o Grafana incluído, ou apenas como backend de observabilidade para uma instância de Grafana já existente.
+
 ## Arquitetura
 
 ```mermaid
@@ -71,7 +73,7 @@ cp .env.example .env
 make up
 ```
 
-O comando `make up`:
+O comando `make up` é um alias para `make up-full` e:
 
 1. valida Docker e Docker Compose;
 2. cria o `.env` quando necessário;
@@ -88,6 +90,92 @@ bash scripts/bootstrap.sh
 docker compose pull
 docker compose up -d
 ```
+
+## Modos de deploy
+
+### Stack completa
+
+Use este modo quando quiser executar também o Grafana incluído no projeto:
+
+```bash
+make up
+```
+
+Ou explicitamente:
+
+```bash
+make up-full
+```
+
+Serviços iniciados:
+
+- Grafana;
+- Alloy;
+- Loki;
+- Mimir;
+- Tempo;
+- Pyroscope.
+
+### Apenas backends
+
+Use este modo quando já existir uma instância de Grafana no ambiente:
+
+```bash
+make up-backends
+```
+
+Serviços iniciados:
+
+- Alloy;
+- Loki;
+- Mimir;
+- Tempo;
+- Pyroscope.
+
+O Grafana incluído neste repositório não será iniciado. Isso não interrompe a coleta, porque o Alloy envia os dados diretamente aos respectivos backends.
+
+Para iniciar o Grafana do projeto posteriormente:
+
+```bash
+make up-grafana
+```
+
+### Conectar um Grafana existente
+
+Quando o Grafana estiver em outro servidor, cadastre os datasources usando o IP ou DNS do host desta stack:
+
+| Datasource | URL |
+|---|---|
+| Mimir | `http://<HOST>:9009/prometheus` |
+| Loki | `http://<HOST>:3100` |
+| Tempo | `http://<HOST>:3200` |
+| Pyroscope | `http://<HOST>:4040` |
+
+Exemplo:
+
+```text
+http://192.168.1.50:9009/prometheus
+http://192.168.1.50:3100
+http://192.168.1.50:3200
+http://192.168.1.50:4040
+```
+
+Quando o Grafana estiver em um container no mesmo servidor, conecte-o à rede configurada em `MONITORING_NETWORK`:
+
+```bash
+docker network connect monitoring <NOME_DO_CONTAINER_GRAFANA>
+```
+
+Nesse cenário, use os nomes internos dos serviços:
+
+| Datasource | URL interna |
+|---|---|
+| Mimir | `http://mimir:9009/prometheus` |
+| Loki | `http://loki:3100` |
+| Tempo | `http://tempo:3200` |
+| Pyroscope | `http://pyroscope:4040` |
+
+> Garanta conectividade de rede e libere as portas necessárias no firewall quando o Grafana estiver em outro servidor. Este laboratório não configura TLS nem autenticação entre os componentes.
 
 ## Configuração
 
@@ -108,16 +196,19 @@ Também é possível alterar todas as portas publicadas sem editar o Compose.
 ## Comandos úteis
 
 ```bash
-make bootstrap  # prepara redes, diretórios e .env
-make validate   # valida Compose e shell
-make pull       # atualiza imagens
-make up         # prepara e inicia a stack
-make down       # encerra a stack preservando dados
-make restart    # reinicia os serviços
-make ps         # exibe o estado dos containers
-make logs       # acompanha os logs
-make clean      # remove containers órfãos
-make reset      # remove a stack e todos os dados locais
+make bootstrap    # prepara redes, diretórios e .env
+make validate     # valida Compose e shell
+make pull         # atualiza imagens
+make up           # alias para a stack completa
+make up-full      # inicia Grafana e todos os backends
+make up-backends  # inicia somente Alloy, Loki, Mimir, Tempo e Pyroscope
+make up-grafana   # inicia somente o Grafana do projeto
+make down         # encerra a stack preservando dados
+make restart      # reinicia os serviços
+make ps           # exibe o estado dos containers
+make logs         # acompanha os logs
+make clean        # remove containers órfãos
+make reset        # remove a stack e todos os dados locais
 ```
 
 ## Acessos padrão
