@@ -1,0 +1,110 @@
+services:
+  loki:
+    image: grafana/loki:3.5.5
+    container_name: olympus-loki
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - /opt/docker/stacks/observability/config/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - /opt/docker/volumes/observability/loki:/loki
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.8.1
+    container_name: olympus-alloy
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --stability.level=public-preview
+    ports:
+      - "12345:12345"
+      - "4317:4317"
+      - "4318:4318"
+      - "4041:4041"
+    volumes:
+      - /opt/docker/stacks/observability/config/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - monitoring
+    depends_on:
+      - loki
+      - mimir
+      - tempo
+      - pyroscope
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.3.1
+    container_name: olympus-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - /opt/docker/volumes/observability/grafana:/var/lib/grafana
+      - /opt/docker/stacks/observability/config/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - frontend
+      - monitoring
+    depends_on:
+      - loki
+      - mimir
+      - tempo
+      - pyroscope
+    restart: unless-stopped
+
+  mimir:
+    image: grafana/mimir:3.1.2
+    container_name: olympus-mimir
+    command: ["-config.file=/etc/mimir/mimir-config.yml"]
+    ports:
+      - "9009:9009"
+    volumes:
+      - /opt/docker/stacks/observability/config/mimir/mimir-config.yml:/etc/mimir/mimir-config.yml:ro
+      - /opt/docker/volumes/observability/mimir:/mimir
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.9.0
+    container_name: olympus-tempo
+    command: ["-config.file=/etc/tempo/tempo-config.yml"]
+    ports:
+      - "3200:3200"
+     # - "4317:4317"
+     # - "4318:4318"
+    volumes:
+      - /opt/docker/stacks/observability/config/tempo/tempo-config.yml:/etc/tempo/tempo-config.yml:ro
+      - /opt/docker/volumes/observability/tempo:/var/tempo
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  pyroscope:
+    image: grafana/pyroscope:1.14.1
+    container_name: olympus-pyroscope
+    command:
+      - "-config.file=/etc/pyroscope/config.yaml"
+    ports:
+      - "4040:4040"
+    volumes:
+      - /opt/docker/stacks/observability/config/pyroscope/config.yaml:/etc/pyroscope/config.yaml:ro
+      - /opt/docker/volumes/observability/pyroscope:/var/lib/pyroscope
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+networks:
+  frontend:
+    external: true
+  monitoring:
+    external: true

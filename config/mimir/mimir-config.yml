@@ -1,0 +1,42 @@
+multitenancy_enabled: false
+
+server:
+  http_listen_port: 9009
+  grpc_listen_port: 9095
+
+blocks_storage:
+  backend: filesystem
+  filesystem:
+    dir: /mimir/blocks
+
+ruler_storage:
+  backend: filesystem
+  filesystem:
+    dir: /mimir/rules
+
+alertmanager_storage:
+  backend: filesystem
+  filesystem:
+    dir: /mimir/alertmanager
+
+compactor:
+  data_dir: /mimir/compactor
+
+distributor:
+  ring:
+    kvstore:
+      store: memberlist
+
+ingester:
+  ring:
+    replication_factor: 1
+    kvstore:
+      store: memberlist
+
+store_gateway:
+  sharding_ring:
+    replication_factor: 1
+
+memberlist:
+  join_members:
+    - mimir:7946
