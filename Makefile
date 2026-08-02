@@ -1,4 +1,4 @@
-.PHONY: bootstrap validate pull up down restart ps logs clean reset
+.PHONY: bootstrap validate pull up up-full up-backends up-grafana down restart ps logs clean reset
 
 bootstrap:
 	bash scripts/bootstrap.sh
@@ -10,9 +10,19 @@ validate:
 pull:
 	docker compose pull
 
-up: bootstrap
+up: up-full
+
+up-full: bootstrap
 	docker compose up -d
 	docker compose ps
+
+up-backends: bootstrap
+	docker compose up -d loki mimir tempo pyroscope alloy
+	docker compose ps loki mimir tempo pyroscope alloy
+
+up-grafana: bootstrap
+	docker compose up -d grafana
+	docker compose ps grafana
 
 down:
 	docker compose down
