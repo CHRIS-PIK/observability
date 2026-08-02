@@ -1,0 +1,44 @@
+name: Validate observability stack
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare environment
+        run: cp .env.example .env
+
+      - name: Validate Docker Compose
+        run: docker compose config --quiet
+
+      - name: Validate shell scripts
+        run: bash -n scripts/bootstrap.sh
+
+      - name: Validate JSON dashboards
+        run: python -m json.tool config/grafana/dashboards/observability-overview.json >/dev/null
+
+      - name: Validate YAML files
+        run: |
+          python - <<'PY'
+          import pathlib
+          import yaml
+
+          files = list(pathlib.Path("config").rglob("*.yml"))
+          files += list(pathlib.Path("config").rglob("*.yaml"))
+          files += [pathlib.Path("docker-compose.yml")]
+
+          for path in files:
+              with path.open(encoding="utf-8") as stream:
+                  yaml.safe_load(stream)
+              print(f"OK: {path}")
+          PY
